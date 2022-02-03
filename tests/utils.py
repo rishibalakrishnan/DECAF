@@ -187,8 +187,20 @@ def load_adult() -> Tuple[pd.DataFrame, pd.DataFrame]:
     for row in replace:
         df = df.replace(row, range(len(row)))
 
-    df = df.values
-    X = df[:, :14].astype(np.uint32)
-    y = df[:, 14].astype(np.uint8)
+    continuous = ["education-num", "hours-per-week", "age"]
+    for col in continuous:
+        c_range = df[col].max() - df[col].min()
+        df[col] = df[col] / c_range
 
-    return X, y
+    df = df[["race", "age", "sex", "native-country", "marital-status", "education-num", "occupation", "hours-per-week", "workclass", "relationship", "label"]]
+    categorical = ["race", "native-country", "marital-status", "occupation", "workclass", "relationship"]
+    df = pd.concat([pd.get_dummies(df[col]) if col in categorical else df[col] for col in df.columns], axis=1)
+    df = df.values
+
+    feature_num = {0: 5, 1: 1, 2:1, 3: 41, 4: 7, 5: 1, 6:14, 7: 1, 8:7, 9:6, 10:1}
+    
+    # X = df[:, :-1].astype(np.uint32)
+    # y = df[:, -1].astype(np.uint8)
+
+    dag_seed = [[0, 4], [1, 4], [2, 4], [3, 4], [0, 5], [4, 5], [1, 5], [2, 5], [3, 5], [0, 6], [1, 6], [2, 6], [4, 6], [5, 6], [0, 7], [1, 7], [4, 7], [3, 7], [2, 7], [5, 7], [1, 8], [4, 8], [2, 8], [5, 8], [3, 8], [4, 9], [5, 9], [1, 9], [2, 9], [3, 9], [0, 10], [1, 10], [2, 10], [3, 10], [4, 10], [5, 10], [6, 10], [7, 10], [8, 10], [9, 10]]
+    return df, dag_seed, feature_num
