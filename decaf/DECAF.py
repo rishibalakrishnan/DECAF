@@ -400,74 +400,9 @@ class DECAF(pl.LightningModule):
         gen_order = list(nx.algorithms.dag.topological_sort(G))
         return gen_order
 
-    # def training_step(
-    #     self, batch: torch.Tensor, batch_idx: int, optimizer_idx: int
-    # ) -> OrderedDict:
-    #     # sample noise
-    #     z = self.sample_z(batch.shape[0])
-    #     z = z.type_as(batch)
-
-    #     if self.hparams.p_gen < 0:
-    #         generated_batch = self.generator.sequential(batch, z, self.get_gen_order())
-    #     else:  # train simultaneously
-    #         raise ValueError(
-    #             "we're not allowing simultaneous generation no more. Set p_gen negative"
-    #         )
-    #     # train generator
-    #     if optimizer_idx == 0:
-    #         self.iterations_d += 1
-    #         # Measure discriminator's ability to classify real from generated samples
-
-    #         # how well can it label as real?
-    #         real_loss = torch.mean(self.discriminator(batch))
-    #         fake_loss = torch.mean(self.discriminator(generated_batch.detach()))
-
-    #         # discriminator loss
-    #         d_loss = fake_loss - real_loss
-
-    #         # add the gradient penalty
-    #         d_loss += self.hparams.lambda_gp * self.compute_gradient_penalty(
-    #             batch, generated_batch
-    #         )
-
-    #         tqdm_dict = {"d_loss": d_loss.detach()}
-    #         output = OrderedDict(
-    #             {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-    #         )
-    #         return output
-    #     elif optimizer_idx == 1:
-    #         # sanity check: keep track of G updates
-    #         self.iterations_g += 1
-
-    #         # adversarial loss (negative D fake loss)
-    #         g_loss = -torch.mean(
-    #             self.discriminator(generated_batch)
-    #         )  # self.adversarial_loss(self.discriminator(self.generated_batch), valid)
-
-    #         # add privacy loss of ADS-GAN
-    #         g_loss += self.hparams.lambda_privacy * self.privacy_loss(
-    #             batch, generated_batch
-    #         )
-
-    #         # add l1 regularization loss
-    #         g_loss += self.hparams.l1_g * self.l1_reg(self.generator)
-
-    #         if len(self.dag_seed) == 0:
-    #             if self.hparams.grad_dag_loss:
-    #                 g_loss += self.gradient_dag_loss(batch, z)
-
-    #         tqdm_dict = {"g_loss": g_loss.detach()}
-
-    #         output = OrderedDict(
-    #             {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
-    #         )
-
-    #         return output
-    #     else:
-    #         raise ValueError("should not get here")
-
-
-    def training_step(self, batch: torch.Tensor, batch_idx: int) -> OrderedDict:
+    def training_step(
+        self, batch: torch.Tensor, batch_idx: int, optimizer_idx: int
+    ) -> OrderedDict:
         # sample noise
         z = self.sample_z(batch.shape[0])
         z = z.type_as(batch)
@@ -478,65 +413,130 @@ class DECAF(pl.LightningModule):
             raise ValueError(
                 "we're not allowing simultaneous generation no more. Set p_gen negative"
             )
-        
-        optimizer_idx = int(batch_idx % (1 + self.hparams.d_updates) == self.hparams.d_updates)
-        opt = self.optimizers()
-        #Zero-grad discriminator optimizer
-        opt = opt[optimizer_idx]
-
         # train generator
         if optimizer_idx == 0:
             self.iterations_d += 1
             # Measure discriminator's ability to classify real from generated samples
 
-            self.discriminator.remove_hooks()
-            gp = self.hparams.lambda_gp * self.compute_gradient_penalty(batch, generated_batch)
-            opt.zero_grad()
-            self.manual_backward(gp, create_graph=True, retain_graph=True)
-            self.discriminator.add_hooks()
+            # how well can it label as real?
+            real_loss = torch.mean(self.discriminator(batch))
+            fake_loss = torch.mean(self.discriminator(generated_batch.detach()))
 
-            fake_output = self.discriminator(generated_batch.detach())
-            fake_loss = torch.mean(fake_output)
-            self.manual_backward(fake_loss)
-            opt.step()
+            # discriminator loss
+            d_loss = fake_loss - real_loss
 
-            real_output = self.discriminator(batch)
-            real_loss = - torch.mean(real_output)
-            opt.zero_grad()
-            self.manual_backward(real_loss)
-            opt.step()
-            # opt.zero_grad()
+            # add the gradient penalty
+            d_loss += self.hparams.lambda_gp * self.compute_gradient_penalty(
+                batch, generated_batch
+            )
 
-            self.priv_acc.step(noise_multiplier=self.noise_multiplier, sample_rate=self.sample_rate)
-
-            disc_loss = fake_loss - real_loss
-
-            tqdm_dict = {"d_loss": disc_loss.detach()}
+            tqdm_dict = {"d_loss": d_loss.detach()}
             output = OrderedDict(
-                {"loss": disc_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+                {"loss": d_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
             )
             return output
         elif optimizer_idx == 1:
             # sanity check: keep track of G updates
-            g_output = self.discriminator(generated_batch)
-            g_loss = - torch.mean(g_output)
-            opt.zero_grad()
-            self.manual_backward(g_loss)
-            opt.step()
+            self.iterations_g += 1
+
+            # adversarial loss (negative D fake loss)
+            g_loss = -torch.mean(
+                self.discriminator(generated_batch)
+            )  # self.adversarial_loss(self.discriminator(self.generated_batch), valid)
+
+            # add privacy loss of ADS-GAN
+            g_loss += self.hparams.lambda_privacy * self.privacy_loss(
+                batch, generated_batch
+            )
+
+            # add l1 regularization loss
+            g_loss += self.hparams.l1_g * self.l1_reg(self.generator)
+
+            if len(self.dag_seed) == 0:
+                if self.hparams.grad_dag_loss:
+                    g_loss += self.gradient_dag_loss(batch, z)
+
             tqdm_dict = {"g_loss": g_loss.detach()}
 
             output = OrderedDict(
                 {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
             )
-            self.iterations_g += 1
 
             return output
         else:
             raise ValueError("should not get here")
 
-    def training_epoch_end(self, training_step_outputs):
-        eps = self.priv_acc.get_epsilon(self.delta)
-        self.log("Epsilon", eps, prog_bar=True, on_epoch=True, logger=True)
+
+    # def training_step(self, batch: torch.Tensor, batch_idx: int) -> OrderedDict:
+    #     # sample noise
+    #     z = self.sample_z(batch.shape[0])
+    #     z = z.type_as(batch)
+
+    #     if self.hparams.p_gen < 0:
+    #         generated_batch = self.generator.sequential(batch, z, self.get_gen_order())
+    #     else:  # train simultaneously
+    #         raise ValueError(
+    #             "we're not allowing simultaneous generation no more. Set p_gen negative"
+    #         )
+        
+    #     optimizer_idx = int(batch_idx % (1 + self.hparams.d_updates) == self.hparams.d_updates)
+    #     opt = self.optimizers()
+    #     #Zero-grad discriminator optimizer
+    #     opt = opt[optimizer_idx]
+
+    #     # train generator
+    #     if optimizer_idx == 0:
+    #         self.iterations_d += 1
+    #         # Measure discriminator's ability to classify real from generated samples
+
+    #         self.discriminator.remove_hooks()
+    #         gp = self.hparams.lambda_gp * self.compute_gradient_penalty(batch, generated_batch)
+    #         opt.zero_grad()
+    #         self.manual_backward(gp, create_graph=True, retain_graph=True)
+    #         self.discriminator.add_hooks()
+
+    #         fake_output = self.discriminator(generated_batch.detach())
+    #         fake_loss = torch.mean(fake_output)
+    #         self.manual_backward(fake_loss)
+    #         opt.step()
+
+    #         real_output = self.discriminator(batch)
+    #         real_loss = - torch.mean(real_output)
+    #         opt.zero_grad()
+    #         self.manual_backward(real_loss)
+    #         opt.step()
+    #         # opt.zero_grad()
+
+    #         self.priv_acc.step(noise_multiplier=self.noise_multiplier, sample_rate=self.sample_rate)
+
+    #         disc_loss = fake_loss - real_loss
+
+    #         tqdm_dict = {"d_loss": disc_loss.detach()}
+    #         output = OrderedDict(
+    #             {"loss": disc_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+    #         )
+    #         return output
+    #     elif optimizer_idx == 1:
+    #         # sanity check: keep track of G updates
+    #         g_output = self.discriminator(generated_batch)
+    #         g_loss = - torch.mean(g_output)
+    #         opt.zero_grad()
+    #         self.manual_backward(g_loss)
+    #         opt.step()
+    #         tqdm_dict = {"g_loss": g_loss.detach()}
+
+    #         output = OrderedDict(
+    #             {"loss": g_loss, "progress_bar": tqdm_dict, "log": tqdm_dict}
+    #         )
+    #         self.iterations_g += 1
+
+    #         return output
+    #     else:
+    #         raise ValueError("should not get here")
+
+    # def training_epoch_end(self, training_step_outputs):
+    #     eps = self.priv_acc.get_epsilon(self.delta)
+    #     self.log("Epsilon", eps, prog_bar=True, on_epoch=True, logger=True)
     
     def validation_step(self, batch, batch_idx):
         '''

@@ -58,7 +58,7 @@ class DataModule(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset, 
             batch_size=self.batch_size, 
-            num_workers=self.num_workers
+            num_workers=56
         )
 
 # class DataModule(pl.LightningDataModule):
