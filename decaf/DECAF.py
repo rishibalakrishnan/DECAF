@@ -77,6 +77,7 @@ class Generator_causal(nn.Module):
             return layers
 
         self.shared = nn.Sequential(*block(h_dim, h_dim), *block(h_dim, h_dim))
+        # self.shared = n[nn.Sequential(*block(h_dim, h_dim)) for _ in range(self.x_dim)] 
 
         if use_mask:
 
@@ -137,7 +138,8 @@ class Generator_causal(nn.Module):
         for i, layer in enumerate(self.fc_f):
             torch.nn.init.xavier_normal_(layer.weight)
             layer.weight.data *= f_scale
-        # for m in self.fc_f:
+        
+        # for m in self.shared:
         #     for layer in m:
         #         if type(layer) == nn.Linear:
         #             torch.nn.init.xavier_normal_(layer.weight)
